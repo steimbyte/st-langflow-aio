@@ -2,11 +2,13 @@
 # =============================================================================
 #  st-langflow-aio
 #  Langflow + ffmpeg + chromium + yt-dlp + node tools
-#  + MiniMax als VOLL FUNKTIONSFAEHIGER Global Model Provider
-#    (im Agent Model-Provider-Dropdown, in Settings -> Model Providers)
+#  + MiniMax als Global Model Provider
+#    (im Agent Model-Provider-Dropdown, in Settings -> Model Providers,
+#     UND in der /api/v1/models Liste)
 #
 # Build:  docker build --no-cache -t st-langflow-aio .
 # Run:    docker run -d -p 7860:7860 -v ./data:/app/langflow st-langflow-aio
+# Verify: docker exec -it langflow bash /app/inject/verify.sh
 # =============================================================================
 
 FROM langflowai/langflow:latest
@@ -16,7 +18,9 @@ USER root
 ENV DEBIAN_FRONTEND=noninteractive \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
-    LANGFLOW_CONFIG_DIR=/app/langflow
+    LANGFLOW_CONFIG_DIR=/app/langflow \
+    LANGFLOW_DEV=false \
+    LFX_DEV=false
 
 # =============================================================================
 # 1. System packages
@@ -73,25 +77,40 @@ RUN npm init -y >/dev/null \
 ENV PATH="/opt/tools/node_modules/.bin:${PATH}"
 
 # =============================================================================
-# 4. MiniMax Component (LCModelComponent) in site-packages
-#    -> Direkt importierbar als lfx.components.minimax
+# 4. MiniMax Component in site-packages
 # =============================================================================
-COPY inject/lfx_components/lfx/components/minimax/ \
-     /app/.venv/lib/python3.14/site-packages/lfx/components/minimax/
+# Find the site-packages directory dynamically (any Python 3.x version)
+RUN SITE=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
+    echo "Detected site-packages: $SITE" && \
+    mkdir -p "$SITE/lfx/components/minimax"
 
-# touch __init__.py im components parent sicherstellen
-RUN touch /app/.venv/lib/python3.14/site-packages/lfx/components/__init__.py
+COPY inject/lfx_components/lfx/components/minimax/__init__.py \
+     /tmp/minimax_init.py
+COPY inject/lfx_components/lfx/components/minimax/minimax.py \
+     /tmp/minimax_main.py
+
+RUN SITE=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
+    cp /tmp/minimax_init.py "$SITE/lfx/components/minimax/__init__.py" && \
+    cp /tmp/minimax_main.py "$SITE/lfx/components/minimax/minimax.py" && \
+    rm /tmp/minimax_init.py /tmp/minimax_main.py && \
+    echo "MiniMax component installed to $SITE/lfx/components/minimax/"
 
 # =============================================================================
-# 5. Patch Langflow Backend — MiniMax als Global Model Provider registrieren
-#    Patched:
-#      - lfx/base/models/minimax_constants.py (NEU)
-#      - lfx/base/models/model_metadata.py
-#      - lfx/base/models/unified_models/provider_queries.py
-#      - lfx/base/models/model_input_constants.py
+# 5. Patch Langflow Backend — MiniMax als Global Model Provider
 # =============================================================================
 COPY inject/patch_full_provider.py /tmp/patch.py
 RUN python3 /tmp/patch.py && rm /tmp/patch.py
+
+# =============================================================================
+# 6. Verify-Skript rein
+# =============================================================================
+COPY inject/verify.sh /app/inject/verify.sh
+RUN chmod +x /app/inject/verify.sh
+
+# =============================================================================
+# 7. Cache leeren — Langflow speichert component cache in der DB
+#    Aber: User muss Volume loeschen (docker compose down -v)
+# =============================================================================
 
 WORKDIR /app/langflow
 
