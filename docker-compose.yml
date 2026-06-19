@@ -1,0 +1,48 @@
+# docker-compose.yml fuer st-langflow-aio
+# Loescht das Volume fuer frischen Start (wichtig nach Code-Aenderungen!)
+version: "3.8"
+
+services:
+  langflow:
+    build: .
+    image: st-langflow-aio:latest
+    user: "0:0"
+    ports:
+      - "7860:7860"
+    environment:
+      LANGFLOW_CONFIG_DIR: /app/langflow
+      LANGFLOW_DATABASE_URL: postgresql://langflow:langflow@postgres:5432/langflow
+      LANGFLOW_AUTO_LOGIN: "false"
+      LANGFLOW_SUPERUSER: ${LANGFLOW_SUPERUSER:-alephtex@gmail.com}
+      LANGFLOW_SUPERUSER_PASSWORD: ${LANGFLOW_SUPERUSER_PASSWORD}
+      LANGFLOW_SECRET_KEY: ${LANGFLOW_SECRET_KEY}
+      LANGFLOW_COMPONENTS_PATH: /app/custom_components
+      # MiniMax API Key (optional, kann auch im UI eingetragen werden)
+      # MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+    volumes:
+      - ./data:/app/langflow
+    depends_on:
+      - postgres
+    networks:
+      - npm
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  postgres:
+    image: postgres:16
+    user: "0:0"
+    environment:
+      - POSTGRES_USER=langflow
+      - POSTGRES_PASSWORD=langflow
+      - POSTGRES_DB=langflow
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    networks:
+      - npm
+
+networks:
+  npm:
+    external: true
