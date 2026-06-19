@@ -93,4 +93,10 @@ src/frontend/src/icons/MiniMax/
 ├── index.tsx             # React forwardRef Wrapper
 ├── MiniMaxIcon.jsx       # JSX SVG Komponente
 └── MiniMaxIcon.svg       # Rohes SVG
+
+---
+
+## Hinweis zur KI-Unterstützung
+
+Bei der Entwicklung dieses Projekts wurden teilweise oder vollständig KI-gestützte Tools und Technologien eingesetzt.
 ```
