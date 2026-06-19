@@ -2,6 +2,8 @@
 
 **Langflow all-in-one** mit voll integriertem MiniMax Provider (im Agent Dropdown).
 
+> **v0.1.0** - Erste stabile Release. MiniMax ist verifiziert als Global Model Provider verfuegbar.
+
 ## Was ist drin
 
 | Tool | Zweck |
