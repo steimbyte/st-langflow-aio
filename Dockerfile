@@ -3,12 +3,10 @@
 #  st-langflow-aio
 #  Langflow + ffmpeg + chromium + yt-dlp + node tools
 #  + MiniMax als Global Model Provider
-#    (im Agent Model-Provider-Dropdown, in Settings -> Model Providers,
-#     UND in der /api/v1/models Liste)
 #
 # Build:  docker build --no-cache -t st-langflow-aio .
-# Run:    docker run -d -p 7860:7860 -v ./data:/app/langflow st-langflow-aio
 # Verify: docker exec -it <container> python3 /tmp/verify_inplace.py
+# Smoke:  docker exec -it <container> python3 /tmp/smoke_test.py <key>
 # =============================================================================
 
 FROM langflowai/langflow:latest
@@ -63,7 +61,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # =============================================================================
 RUN pip install --no-cache-dir --break-system-packages \
         yt-dlp \
-        langchain-anthropic
+        langchain-anthropic \
+        requests
 
 # =============================================================================
 # 3. Node tools
@@ -78,48 +77,39 @@ ENV PATH="/opt/tools/node_modules/.bin:${PATH}"
 
 # =============================================================================
 # 4. MiniMax Component (LCModelComponent) installieren
-#    -> Direkt nach site-packages/lfx/components/minimax/
 # =============================================================================
-# __init__.py
 RUN python3 -c "import site; d=site.getsitepackages()[0]; \
     import os; os.makedirs(f'{d}/lfx/components/minimax', exist_ok=True); \
-    open(f'{d}/lfx/components/minimax/__init__.py','w').write('''from __future__ import annotations\nfrom typing import TYPE_CHECKING, Any\nfrom lfx.components._importing import import_mod\nif TYPE_CHECKING:\n    from lfx.components.minimax.minimax import MiniMaxModelComponent\n_dynamic_imports = {\"MiniMaxModelComponent\": \"minimax\"}\n__all__ = [\"MiniMaxModelComponent\"]\ndef __getattr__(attr_name: str) -> Any:\n    if attr_name not in _dynamic_imports:\n        raise AttributeError(attr_name)\n    try:\n        result = import_mod(attr_name, _dynamic_imports[attr_name], __spec__.parent)\n    except (ModuleNotFoundError, ImportError, AttributeError) as e:\n        raise AttributeError(str(e)) from e\n    globals()[attr_name] = result\n    return result\n'''); \
-    print('init.py OK')"
+    open(f'{d}/lfx/components/minimax/__init__.py','w').write('''from __future__ import annotations\nfrom typing import TYPE_CHECKING, Any\nfrom lfx.components._importing import import_mod\nif TYPE_CHECKING:\n    from lfx.components.minimax.minimax import MiniMaxModelComponent\n_dynamic_imports = {\"MiniMaxModelComponent\": \"minimax\"}\n__all__ = [\"MiniMaxModelComponent\"]\ndef __getattr__(attr_name: str) -> Any:\n    if attr_name not in _dynamic_imports:\n        raise AttributeError(attr_name)\n    try:\n        result = import_mod(attr_name, _dynamic_imports[attr_name], __spec__.parent)\n    except (ModuleNotFoundError, ImportError, AttributeError) as e:\n        raise AttributeError(str(e)) from e\n    globals()[attr_name] = result\n    return result\n'''); print('init.py OK')"
 
-# minimax.py
 COPY inject/lfx_components/lfx/components/minimax/minimax.py /tmp/minimax_component.py
 RUN SITE=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
     cp /tmp/minimax_component.py "$SITE/lfx/components/minimax/minimax.py" && \
     rm /tmp/minimax_component.py && \
-    echo "minimax.py installed to $SITE/lfx/components/minimax/"
+    echo "minimax.py installed"
 
 # =============================================================================
-# 5. Patch Langflow Backend — MiniMax als Global Model Provider
+# 5. Patch Langflow Backend
 # =============================================================================
 COPY inject/patch_full_provider.py /tmp/patch.py
 RUN python3 /tmp/patch.py && rm /tmp/patch.py
 
 # =============================================================================
-# 6. Verify-Tool in /tmp/ ablegen (funktioniert IMMER)
-#    Hier nicht via COPY — direkt in den Layer gebaked
+# 6. Verify + Smoke-Test in /tmp/ ablegen
 # =============================================================================
 COPY inject/verify_inplace.py /tmp/verify_inplace.py
-RUN chmod +x /tmp/verify_inplace.py
+COPY inject/smoke_test.py /tmp/smoke_test.py
+RUN chmod +x /tmp/verify_inplace.py /tmp/smoke_test.py
 
 # =============================================================================
-# 7. Auto-Patch beim Start — verifiziert + patcht beim Container-Start
-#    Falls Dateien nicht gefunden werden (z.B. Image anders), werden sie
-#    hier direkt erstellt/gepatcht
+# 7. Auto-Patch beim Build
 # =============================================================================
 COPY inject/verify_inplace.py /tmp/auto_patch.py
 RUN SITE=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
     echo "=== AUTO-PATCH START ===" && \
-    python3 /tmp/auto_patch.py 2>&1 | tee /tmp/auto_patch.log && \
+    python3 /tmp/auto_patch.py 2>&1 | tail -30 && \
     echo "=== AUTO-PATCH END ==="
 
-# =============================================================================
-# Final
-# =============================================================================
 WORKDIR /app/langflow
 
 EXPOSE 7860

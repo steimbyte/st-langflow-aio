@@ -1,7 +1,6 @@
 from typing import Any
 
 import requests
-from pydantic.v1 import SecretStr
 from typing_extensions import override
 
 from lfx.base.models.model import LCModelComponent
@@ -33,8 +32,37 @@ MINIMAX_MODELS = [
 ]
 
 
+def _resolve_api_key(value):
+    """Sicheres Aufloesen eines moeglicherweise SecretStr-umwickelten API-Keys.
+
+    SecretStrInput gibt je nach Aufruf-Pfad manchmal einen SecretStr,
+    manchmal einen normalen String zurueck. Wir normalisieren beides.
+    """
+    if value is None or value == "":
+        return None
+    # SecretStr hat get_secret_value()
+    if hasattr(value, "get_secret_value"):
+        try:
+            return value.get_secret_value()
+        except Exception:
+            return str(value)
+    # Falls schon ein String
+    if isinstance(value, str):
+        return value.strip() or None
+    return str(value)
+
+
 class MiniMaxModelComponent(LCModelComponent):
-    """MiniMax LLM via Anthropic-compatible API."""
+    """MiniMax LLM via Anthropic-compatible API.
+
+    API-Docs: https://platform.minimax.io/docs/api-reference/text-anthropic-api
+
+    MiniMax exponiert einen Anthropic-SDK-kompatiblen Endpunkt unter
+    https://api.minimax.io/anthropic. Wir nutzen langchain_anthropic.ChatAnthropic
+    mit angepasster anthropic_api_url.
+
+    Auth: x-api-key Header (Standard Anthropic SDK Verhalten)
+    """
 
     display_name = "MiniMax"
     description = (
@@ -50,8 +78,8 @@ class MiniMaxModelComponent(LCModelComponent):
             name="api_key",
             display_name="MiniMax API Key",
             info=(
-                "Your MiniMax API key. "
-                "Get one at https://platform.minimax.io/"
+                "Your MiniMax API key from https://platform.minimax.io/. "
+                "Used as x-api-key header by the Anthropic-compatible endpoint."
             ),
             required=True,
             real_time_refresh=True,
@@ -107,8 +135,6 @@ class MiniMaxModelComponent(LCModelComponent):
     ]
 
     def get_models(self, *, tool_model_enabled: bool | None = None) -> list[str]:
-        if tool_model_enabled:
-            return MINIMAX_MODELS
         return MINIMAX_MODELS
 
     @override
@@ -136,14 +162,29 @@ class MiniMaxModelComponent(LCModelComponent):
             )
             raise ImportError(msg) from e
 
-        try:
-            api_key = SecretStr(self.api_key).get_secret_value() if self.api_key else None
-            max_tokens_val = int(getattr(self, "max_tokens", "") or 4096)
+        # API-Key korrekt aufloesen (SecretStr oder String)
+        api_key = _resolve_api_key(self.api_key)
+        if not api_key:
+            raise ValueError(
+                "MiniMax API key is missing. "
+                "Set the api_key field in the MiniMax component."
+            )
 
+        max_tokens_val = int(getattr(self, "max_tokens", "") or 4096)
+        base_url = (self.base_url or DEFAULT_MINIMAX_API_URL).rstrip("/")
+
+        logger.debug(
+            "Building MiniMax ChatAnthropic: model=%s base_url=%s key_len=%d",
+            self.model_name,
+            base_url,
+            len(api_key),
+        )
+
+        try:
             output = ChatAnthropic(
                 model=self.model_name or "MiniMax-M3",
                 anthropic_api_key=api_key,
-                anthropic_api_url=self.base_url or DEFAULT_MINIMAX_API_URL,
+                anthropic_api_url=base_url,
                 max_tokens=max_tokens_val,
                 temperature=self.temperature,
                 model_kwargs=self.model_kwargs or {},
@@ -151,7 +192,7 @@ class MiniMaxModelComponent(LCModelComponent):
                 stream_usage=True,
             )
         except Exception as e:
-            msg = f"Could not connect to MiniMax API: {e}"
+            msg = f"Could not build MiniMax ChatAnthropic: {e}"
             raise ValueError(msg) from e
 
         return output
