@@ -1,5 +1,13 @@
 # st-langflow-aio
 
+<p align="center">
+  <img src="docs/images/header.png" alt="st-langflow-aio header" />
+</p>
+
+<p align="center">
+  <img src="docs/images/second.png" alt="MiniMax Provider in Langflow" />
+</p>
+
 **Langflow + MiniMax als voll integrierter Global Model Provider.**
 
 > v0.2.0 — verifiziert funktionsfaehig, Open Source, kein API-Key noetig fuer das Image selbst.
