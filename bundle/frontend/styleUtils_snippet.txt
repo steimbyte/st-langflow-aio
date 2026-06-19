@@ -1,0 +1,2 @@
+//Fuege in SIDEBAR_BUNDLES in src/frontend/src/utils/styleUtils.ts hinzu:
+  { display_name: "MiniMax", name: "minimax", icon: "MiniMax" },

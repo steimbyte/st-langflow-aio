@@ -1,0 +1,3 @@
+//Fuege in src/frontend/src/icons/lazyIconImports.ts hinzu:
+  MiniMax: () =>
+    import("@/icons/MiniMax").then((mod) => ({ default: mod.MiniMaxIcon })),
