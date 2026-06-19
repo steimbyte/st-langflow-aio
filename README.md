@@ -1,106 +1,83 @@
 # st-langflow-aio
 
-**Langflow all-in-one** — Custom Docker Image mit Extras.
+**Langflow all-in-one** mit voll integriertem MiniMax Provider (im Agent Dropdown).
 
 ## Was ist drin
 
-| Tool | Art | Zweck |
-|------|------|--------|
-| Langflow | latest | UI/Framework |
-| ffmpeg | apt | Video/Audio Processing |
-| Chromium | apt | Browser Automation (puppeteer) |
-| Node.js | 20.x | JavaScript Tooling |
-| yt-dlp | pip | YouTube/Media Download |
-| yt-dlp-wrap | npm | JS-Wrapper fuer yt-dlp |
-| puppeteer-core | npm | Browser Control (ohne Download) |
-| langchain-anthropic | pip | MiniMax LLM Provider |
-| **MiniMax LLM** | Custom Component | Anthropic-kompatibel |
+| Tool | Zweck |
+|------|--------|
+| Langflow | UI/Framework |
+| ffmpeg | Video/Audio |
+| Chromium | Browser Automation (puppeteer) |
+| Node.js 20 | JavaScript Tooling |
+| yt-dlp | Media Download |
+| puppeteer-core | Browser Control |
+| **MiniMax LLM** | **Voll integrierter Global Model Provider** |
 
-## MiniMax Custom Component
+## MiniMax als Global Model Provider
 
-Der MiniMax LLM Component erscheint in der **Sidebar → Custom Components** als **"MiniMax LLM"**.
+MiniMax ist **vollwertig** wie OpenAI, Anthropic oder Ollama integriert:
 
-### Verwendung mit dem Agent
+- **Settings → Model Providers** → "MiniMax" mit API-Key Feld
+- **Agent "Model Provider" Dropdown** → "MiniMax" direkt auswaehlbar
+- **Agent "Model" Feld** → alle MiniMax-Modelle auswaehlbar
 
-1. **Simple Agent** Flow oeffnen (oder neuen erstellen)
-2. Agent: **"Model Provider"** → **"Custom"** auswaehlen
-3. **MiniMax LLM** Component aus der Sidebar in den Flow ziehen
-4. MiniMax LLM: API Key + Model konfigurieren
-5. MiniMax LLM **Language Model** Output → Agent **Language Model** Input verbinden
-6. **Playground** — chatten mit MiniMax
-
-### Unterstuetzte Modelle
-
-| Model | Context | Besonderes |
-|-------|---------|------------|
-| MiniMax-M3 | 1M | Bild/Video/Thinking |
-| MiniMax-M2.7 | 200k | highspeed ~100 tps |
-| MiniMax-M2.5 | 200k | highspeed ~100 tps |
-| MiniMax-M2.1 | 200k | highspeed ~100 tps |
-| MiniMax-M2 | 200k | Agentic/Reasoning |
-
-API-Docs: https://platform.minimax.io/docs/api-reference/text-anthropic-api
-
-## Build & Start
+### Setup
 
 ```bash
-# .env Datei erstellen
+# 1. Volume weg (DB Cache loeschen!)
+docker compose down -v
+
+# 2. Bauen
+docker build --no-cache -t st-langflow-aio .
+
+# 3. .env erstellen
 cat > .env << 'EOF'
 LANGFLOW_SECRET_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
 LANGFLOW_SUPERUSER=alephtex@gmail.com
 LANGFLOW_SUPERUSER_PASSWORD=changeme
-MINIMAX_API_KEY=dein_key_von_platform.minimax.io
+MINIMAX_API_KEY=your_key
 EOF
 
-# Bauen (--no-cache wichtig nach Aenderungen)
-docker build --no-cache -t st-langflow-aio .
-
-# Starten (Volume wird geloescht = frischer DB-Start)
+# 4. Starten
 docker compose up -d
 ```
 
-Oder mit Docker Compose und bestehendem Netzwerk `npm`:
+### Verwendung
 
-```bash
-# Netzwerk erstellen falls noetig
-docker network create npm 2>/dev/null || true
+1. **http://localhost:7860** → einloggen
+2. **Settings → Model Providers** → **MiniMax** → API Key eintragen → Save
+3. Neuer Flow → **Agent** → **Model Provider: MiniMax** → **Model: MiniMax-M3**
+4. Chatten!
 
-docker build --no-cache -t st-langflow-aio .
-docker run -d \
-  --name langflow \
-  --network npm \
-  -p 7860:7860 \
-  -v $(pwd)/data:/app/langflow \
-  -e LANGFLOW_SECRET_KEY=<fernet-key> \
-  -e LANGFLOW_SUPERUSER=alephtex@gmail.com \
-  -e LANGFLOW_SUPERUSER_PASSWORD=<pwd> \
-  -e LANGFLOW_DATABASE_URL=postgresql://langflow:langflow@postgres:5432/langflow \
-  st-langflow-aio
-```
+## Unterstuetzte Modelle
 
-Fernet Key generieren:
-```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
+| Model | Context | Tool Calling | Besonderes |
+|-------|---------|-------------|------------|
+| MiniMax-M3 | 1M | ✅ | Bild/Video/Thinking |
+| MiniMax-M2.7 | 200k | ✅ | highspeed ~100 tps |
+| MiniMax-M2.5 | 200k | ✅ | highspeed ~100 tps |
+| MiniMax-M2.1 | 200k | ✅ | highspeed ~100 tps |
+| MiniMax-M2 | 200k | ✅ | Agentic/Reasoning |
 
-## Ordnerstruktur
+## Wie die Integration funktioniert (technisch)
+
+Der Provider wird **nicht** als Custom Component in die Sidebar gelegt, sondern
+direkt in Langflow's Global Model Provider System registriert. Dafuer patchen wir
+4 Backend-Dateien:
 
 ```
-.
-├── Dockerfile
-├── docker-compose.yml
-├── README.md
-└── inject/
-    └── components/
-        ├── __init__.py
-        └── minimax.py      # Custom Component -> Sidebar
+lfx/base/models/minimax_constants.py            NEU - Modelliste
+lfx/base/models/model_metadata.py              MODEL_PROVIDER_METADATA["MiniMax"]
+lfx/base/models/unified_models/provider_queries.py   MINIMAX_MODELS_DETAILED
+lfx/base/models/model_input_constants.py       MODEL_PROVIDERS_DICT + LIST
 ```
 
-## Bekannte Probleme
+Zusaetzlich wird `MiniMaxModelComponent` (LCModelComponent) in `lfx/components/`
+installiert, damit das Frontend das Component-Template rendern kann.
 
-**"Component nicht in der Sidebar"** nach Update:
-- `docker build --no-cache -t st-langflow-aio .`
-- Docker Compose: `docker compose down -v && docker compose up -d` (loescht Volume)
+Wichtig: nach Aenderungen **immer** `--no-cache` und Volume loeschen,
+weil Langflow die Component-Templates in der DB cached.
 
 ---
 

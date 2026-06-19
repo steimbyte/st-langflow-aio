@@ -2,11 +2,11 @@
 # =============================================================================
 #  st-langflow-aio
 #  Langflow + ffmpeg + chromium + yt-dlp + node tools
-#  + MiniMax Custom Component ( Anthropic-kompatibel )
+#  + MiniMax als VOLL FUNKTIONSFAEHIGER Global Model Provider
+#    (im Agent Model-Provider-Dropdown, in Settings -> Model Providers)
 #
 # Build:  docker build --no-cache -t st-langflow-aio .
-# Run:    docker compose up -d
-#         (compose löscht das alte Volume für frischen Start)
+# Run:    docker run -d -p 7860:7860 -v ./data:/app/langflow st-langflow-aio
 # =============================================================================
 
 FROM langflowai/langflow:latest
@@ -73,11 +73,25 @@ RUN npm init -y >/dev/null \
 ENV PATH="/opt/tools/node_modules/.bin:${PATH}"
 
 # =============================================================================
-# 4. MiniMax Custom Component
-#    -> Landet in /app/custom_components/
-#    -> Wird von Langflow automatisch beim Start entdeckt
+# 4. MiniMax Component (LCModelComponent) in site-packages
+#    -> Direkt importierbar als lfx.components.minimax
 # =============================================================================
-COPY inject/components/ /app/custom_components/
+COPY inject/lfx_components/lfx/components/minimax/ \
+     /app/.venv/lib/python3.14/site-packages/lfx/components/minimax/
+
+# touch __init__.py im components parent sicherstellen
+RUN touch /app/.venv/lib/python3.14/site-packages/lfx/components/__init__.py
+
+# =============================================================================
+# 5. Patch Langflow Backend — MiniMax als Global Model Provider registrieren
+#    Patched:
+#      - lfx/base/models/minimax_constants.py (NEU)
+#      - lfx/base/models/model_metadata.py
+#      - lfx/base/models/unified_models/provider_queries.py
+#      - lfx/base/models/model_input_constants.py
+# =============================================================================
+COPY inject/patch_full_provider.py /tmp/patch.py
+RUN python3 /tmp/patch.py && rm /tmp/patch.py
 
 WORKDIR /app/langflow
 
